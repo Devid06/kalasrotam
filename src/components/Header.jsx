@@ -1,24 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useContent } from '../lib/content.jsx'
 import { useScrolled, useScrollSpy, useBodyLock, useEscape, useSmoothScroll } from '../lib/hooks.js'
-import { ArrowIcon } from './ui.jsx'
-
-/* The studio mark: a stroke that flows and settles into a drop. Drawn rather
-   than imported so it inherits colour and never loads as a separate request. */
-function Mark() {
-  return (
-    <svg className="brand__mark" viewBox="0 0 34 34" fill="none" aria-hidden="true">
-      <path
-        className="brand__stroke"
-        d="M6 27c0-8 6-9.5 10-12.5S21 8 19.5 4"
-        stroke="currentColor"
-        strokeWidth="2.2"
-        strokeLinecap="round"
-      />
-      <circle className="brand__drop" cx="24.5" cy="23.5" r="4" fill="var(--brass)" />
-    </svg>
-  )
-}
+import { ArrowIcon, StudioMark } from './ui.jsx'
 
 export default function Header() {
   const { studio, nav, socials, contact } = useContent()
@@ -53,7 +36,7 @@ export default function Header() {
       <header className={`header ${scrolled ? 'is-scrolled' : ''} ${open ? 'is-menu-open' : ''}`}>
         <div className="shell header__inner">
           <a className="brand" href="#top" onClick={(e) => go(e, '#top')} aria-label={`${studio.name} — home`}>
-            <Mark />
+            <StudioMark src={studio.logo} size={40} />
             <span className="brand__text">
               <span className="brand__name">{studio.name}</span>
               <span className="brand__deva deva">{studio.nameDevanagari}</span>

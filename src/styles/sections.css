@@ -90,6 +90,20 @@
   overflow: visible;
 }
 
+/* The logo is a dense, saturated mark. `contain` rather than `cover` so the
+   ring of colour is never cropped, and a slight negative margin so its own
+   transparent padding does not push the wordmark away from it. */
+.brand__logo {
+  flex-shrink: 0;
+  object-fit: contain;
+  margin-block: -6px;
+}
+
+.footer__top .brand__logo,
+.footer__top .brand__mark {
+  margin-bottom: 1rem;
+}
+
 .brand__stroke {
   stroke-dasharray: 120;
   stroke-dashoffset: 120;

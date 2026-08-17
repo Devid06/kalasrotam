@@ -21,6 +21,11 @@ export const studio = {
   name: 'Kalasrotam',
   nameDevanagari: 'कलास्रोतम्',
   tagline: 'Where art flows into life',
+
+  /* The studio logo — the peepal-leaf brush inside its ring of colour.
+     Set to null to fall back to the simple drawn mark. Replaceable in the
+     admin panel (Studio tab) like any other image. */
+  logo: './images/logo.png',
   etymology: {
     parts: [
       { word: 'कला', roman: 'kalā', meaning: 'art' },

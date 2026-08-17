@@ -192,6 +192,14 @@ function StudioTab({ content, set, setList }) {
   return (
     <>
       <Group title="Studio">
+        <AImage
+          label="Logo"
+          value={studio.logo}
+          seed="studio-logo"
+          variant="decor"
+          onChange={(v) => set('studio.logo', v)}
+          hint="Shown in the header and the footer. A square PNG with a transparent background works best. Clear it to fall back to the simple drawn mark."
+        />
         <AText label="Studio name" value={studio.name} onChange={(v) => set('studio.name', v)} />
         <AText label="Name in Devanagari" value={studio.nameDevanagari} onChange={(v) => set('studio.nameDevanagari', v)} />
         <AText label="Tagline" value={studio.tagline} onChange={(v) => set('studio.tagline', v)} />

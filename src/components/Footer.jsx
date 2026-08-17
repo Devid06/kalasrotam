@@ -1,7 +1,7 @@
 import { useContent } from '../lib/content.jsx'
 import { useSmoothScroll } from '../lib/hooks.js'
 import { waLink, generalMessage } from '../lib/whatsapp.js'
-import { ArrowIcon } from './ui.jsx'
+import { ArrowIcon, StudioMark } from './ui.jsx'
 
 export default function Footer() {
   const { studio, artist, contact, socials, nav, footer } = useContent()
@@ -13,6 +13,9 @@ export default function Footer() {
       <div className="shell">
         <div className="footer__top">
           <div>
+            {/* The logo gets room to breathe here that it never gets in the
+                header — the ring of colour only reads at a decent size. */}
+            <StudioMark src={studio.logo} size={72} alt={`${studio.name} logo`} />
             <p className="footer__mark">
               {studio.name}
               <span className="footer__deva deva">{studio.nameDevanagari}</span>

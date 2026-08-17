@@ -9,6 +9,11 @@ dist-ssr
 # especially if the repo is public.
 read.md
 
+# Full-resolution source art. design/logo-full.png is the 2.3MB original the
+# 120KB public/images/logo.png was made from — kept on disk so it is never lost,
+# kept out of git so the repo does not carry it forever.
+design/
+
 # Editors
 .vscode/*
 !.vscode/extensions.json
