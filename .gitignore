@@ -1,0 +1,20 @@
+node_modules
+dist
+dist-ssr
+*.local
+.DS_Store
+.vite
+
+# The original WhatsApp brief. Private correspondence — keep it out of the repo,
+# especially if the repo is public.
+read.md
+
+# Editors
+.vscode/*
+!.vscode/extensions.json
+.idea
+
+# Logs
+npm-debug.log*
+yarn-error.log*
+pnpm-debug.log*
