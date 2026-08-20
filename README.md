@@ -5,10 +5,11 @@
 
 A one-page website for a hand-made art studio: graphite and charcoal, paintings,
 digital art prints and home decor — with custom commissions, direct purchase over
-WhatsApp, client reviews, a mailing-list form, and a built-in admin panel so you
-can change any text, price or photo yourself.
+WhatsApp, client reviews, a mailing-list form, and a built-in editor so Divyansh
+can change any text, price or photo himself and see it live in a second.
 
-React + Vite. No backend, no database, nothing to pay for monthly.
+React + Vite, on Cloudflare Pages, with Supabase behind the editor. Every piece
+of it sits inside a free tier.
 
 ---
 
@@ -27,63 +28,53 @@ npm run dev     # http://localhost:5173
 
 ---
 
-## Editing the site — the admin panel
+## Editing the site
 
-**Add `?admin=1` to the end of your address:**
+**Divyansh signs in at `yoursite.com/?admin=1`** and edits anything — text,
+prices, photos. Press **Publish** and the live site updates for everyone in
+about a second. No files, no uploads, no rebuild.
+
+Setting that up (Supabase, Cloudflare, the domain) is a one-time job:
+**see [SETUP.md](SETUP.md)** for the full walkthrough.
+
+### How it fits together
 
 ```
-http://localhost:5173/?admin=1        while developing
-https://yoursite.com/?admin=1         once it is live
+Divyansh edits  ──▶  Publish  ──▶  Supabase  ──▶  every visitor
+                                      │
+Photos ─── resized in the browser ────┘  (storage + CDN)
+
+Enquiries ─── from the forms ─────────▶  Supabase  ──▶  Leads tab
 ```
 
-A panel opens on the right. Change anything and the page behind updates as you
-type. There are tabs for Studio, Hero, Commission, About, Practice, Collection,
-Reviews and Leads.
+### Why there is still a Publish button
 
-### The three buttons at the bottom
+Publishing is instant, but deliberate. Edits preview privately on the editor's
+own device until Publish is pressed. Saving every keystroke straight to a live
+site would put half-typed headlines in front of whoever happens to be reading
+the page at that moment.
 
-| Button | What it does |
-| --- | --- |
-| **Publish** | Downloads a `content.json` file. **Upload that file to your website's folder** — that is what makes your changes public. |
-| **Import** | Load a `content.json` back in to keep editing where you left off. Also your backup. |
-| **Discard** | Throws away unpublished changes and goes back to what is live. |
+### It cannot take the site down
 
-### Important: editing is not publishing
+Content is read in order: **live database → last published copy → built-in
+defaults**. If Supabase is paused, slow or misconfigured, the site still renders
+from the layer below rather than showing an error. Tested: with the database
+deliberately unreachable, the page still paints in about half a second.
 
-Your changes are saved in **your own browser** until you press Publish and upload
-the file. Nobody else sees them before that. A black "Unpublished changes" badge
-sits at the bottom of the screen while you have edits waiting, so this is hard to
-get wrong — but it is worth understanding.
+### Photos
 
-The order of precedence is: built-in defaults → your `content.json` → your
-unpublished draft. That is what makes it safe. If `content.json` ever goes
-missing or gets corrupted, the site still loads on the defaults in
-`src/data/site.js` instead of breaking.
+Choose a photo and it is resized in the browser, uploaded to storage, and
+referenced by URL. It never enters the repository and never bloats the page.
+Clearing an image field restores the generated study, so nothing ever breaks.
 
-### Changing pictures
+### Enquiries
 
-Every image field has two ways to set a photo:
+Both forms now write to the database, so **you actually receive them** — this
+used to save to the visitor's own browser, where you never saw them. The Leads
+tab lists every enquiry with a WhatsApp link and a CSV export.
 
-1. **Choose photo** — resized automatically and packed into `content.json`. One
-   file to upload, nothing else to think about.
-2. **Type a path** — put the file in `public/images/` yourself and write
-   `./images/name.jpg`. Keeps `content.json` small.
-
-Option 1 is easier; option 2 is faster for visitors. The panel shows the total
-file size at the top and warns you if it gets heavy — visitors download that file
-on every visit, so on mobile data it matters. If you have many large photos,
-switch those to paths.
-
-Clearing an image field brings back the generated study, so nothing ever breaks.
-
-### About access
-
-`?admin=1` is a convenience, not a password — anyone who knows the URL can open
-the panel. That is deliberate and safe: edits only ever live in the visitor's own
-browser, and publishing means uploading a file to your hosting, which only you
-can do. Nobody can change your live site from the panel.
-
----
+Security: anyone may submit a form; only a signed-in account can read them back.
+A visitor cannot list other people's names and numbers.
 
 ## Before you launch
 
@@ -105,55 +96,17 @@ can do. Nobody can change your live site from the panel.
 
 ---
 
-## Where the enquiries go
-
-Two forms: the commission enquiry and the mailing list. Both do the same thing:
-
-1. Save the entry to **`localStorage` in the visitor's own browser**
-2. Open **WhatsApp** with the details already written out, ready to send
-
-**Leads are stored on the visitor's device, not yours.** You do not receive them.
-What reaches you is the WhatsApp message. This is fine for launching, but it is
-not lead capture. The Leads tab shows what was captured *in your own browser*,
-with a CSV export — useful for testing the forms.
-
-### Turning on real lead capture
-
-Sign up for a free form service (Formspree, Getform, or a Google Apps Script
-endpoint) and replace one function — `submitRemote` in
-[`src/lib/leads.js`](src/lib/leads.js):
-
-```js
-export async function submitRemote(lead) {
-  saveLead(lead)
-  return fetch('https://formspree.io/f/YOUR_FORM_ID', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(lead),
-  })
-}
-```
-
-Both forms already `await` this and already handle failure, so nothing else
-changes.
-
----
-
 ## Putting it online
 
-Run `npm run build`, then upload the `dist/` folder.
+Hosted on **Cloudflare Pages** — free, commercial use permitted, unlimited
+bandwidth, and the most Indian edge locations of the free options, which matters
+for buyers here.
 
-- **Netlify / Vercel** — drag the `dist` folder onto their dashboard. Free,
-  instant, HTTPS, and you can point your own domain at it.
-- **GitHub Pages** — push `dist` to a `gh-pages` branch. `vite.config.js` already
-  uses a relative `base`, so it works from a subfolder.
-- **Ordinary hosting (Hostinger, GoDaddy)** — upload the contents of `dist` to
-  `public_html`.
+Worth knowing why not the obvious alternatives: Vercel's free Hobby plan is
+non-commercial only, and GitHub Pages' terms discourage sites built around
+commercial transactions. Both would have been a risk for a shop.
 
-Your `content.json` goes in the **same folder as `index.html`**, whichever host
-you use.
-
----
+Every push to `main` redeploys automatically. Full steps in [SETUP.md](SETUP.md).
 
 ## About the placeholder artwork
 
@@ -174,17 +127,24 @@ means.
 
 ```
 public/
-├─ content.json         ← what you publish from the admin panel (optional)
-└─ images/              ← photos, if you reference them by path
+├─ content.json         a published snapshot, used if the database is unreachable
+├─ favicon-32.png       tab icon, generated from the logo
+├─ apple-touch-icon.png home-screen icon
+└─ images/logo.png      the studio mark
+
+supabase/
+└─ setup.sql            run once; creates the tables, rules and storage bucket
 
 src/
-├─ data/site.js         built-in defaults. The fallback if content.json is missing.
+├─ data/site.js         built-in defaults — the last line of defence
 ├─ lib/
-│  ├─ content.jsx       the three content layers, draft saving, publishing
+│  ├─ supabase.js       config; REST for visitors, lazy SDK for the editor
+│  ├─ content.jsx       the four content layers, drafts, publishing, live updates
+│  ├─ auth.js           the editor login
+│  ├─ image.js          resize + upload to storage
+│  ├─ leads.js          enquiries in and out, validation, CSV
 │  ├─ noise.js          shared value-noise field (hero + placeholders)
 │  ├─ placeholder.js    generates the SVG art studies
-│  ├─ image.js          resizes and embeds photos chosen in the admin panel
-│  ├─ leads.js          lead storage, validation, CSV export
 │  ├─ whatsapp.js       wa.me links and message templates
 │  └─ hooks.js          scroll spy, reveal, body lock, parallax
 ├─ components/
@@ -199,7 +159,11 @@ src/
 │  ├─ Reviews.jsx       delivered commissions + client words
 │  ├─ Connect.jsx       contact details, Instagram card, mailing list
 │  ├─ Footer.jsx
-│  └─ admin/            the editor panel
+│  └─ admin/
+│     ├─ AdminPanel.jsx  tiny gate: notices ?admin=1, lazy-loads the editor
+│     ├─ Editor.jsx      the editor itself
+│     ├─ Login.jsx       email + password
+│     └─ fields.jsx      the form widgets
 └─ styles/
    ├─ base.css          colour, type scale, buttons, forms
    └─ sections.css      layout for each band of the page
@@ -207,6 +171,11 @@ src/
 
 ### Design decisions worth knowing
 
+- **The editor is a separate chunk.** Visitors download 84KB gzipped; the editor
+  and the Supabase library are another 67KB that load only on `?admin=1`. An
+  earlier version imported the editor directly, and because React hooks must run
+  unconditionally, its auth check fired for every visitor and pulled the whole
+  library down on page views that would never edit anything.
 - **No dark mode.** A gallery has one set of walls; the warm paper palette is the
   brand. The hero and the Collection band go dark deliberately, so the work glows
   against them.

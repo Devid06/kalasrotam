@@ -23,3 +23,8 @@ design/
 npm-debug.log*
 yarn-error.log*
 pnpm-debug.log*
+
+# Local secrets
+.env
+.env.local
+.env.*.local

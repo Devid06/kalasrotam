@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react'
 import { ArtImage, CloseIcon } from '../ui.jsx'
-import { fileToDataUrl, isEmbedded, dataUrlSize, ACCEPTED } from '../../lib/image.js'
+import { uploadImage, isEmbedded, isUploaded, dataUrlSize, ACCEPTED } from '../../lib/image.js'
 import { formatBytes } from '../../lib/content.jsx'
 
 /* ============================================================================
@@ -90,39 +90,48 @@ export function AList({ label, value, onChange, hint, rows = 4 }) {
   )
 }
 
-/* ── Image field ─────────────────────────────────────────────────────────────
-   Two ways to set a picture, because they suit different situations:
+/* ── Image field ─────────────────────────────────────────────────
+   Choose a photo and it is resized in the browser, uploaded to storage, and
+   the resulting address is saved. Nothing to move by hand, and the picture is
+   never carried inside the page itself.
 
-     • Choose a file — resized and embedded into content.json. One upload,
-       nothing else to think about, but it adds weight to every page load.
-     • Type a path — you put the file in public/images/ yourself and reference
-       it. Keeps content.json tiny.
-
-   Clearing the field restores the generated study, so nothing is ever broken. */
+   The text box underneath accepts an address instead, for an image hosted
+   somewhere else. Clearing the field brings back the generated study, so this
+   can never end up broken. */
 
 export function AImage({ label, value, onChange, seed, variant, hint }) {
   const inputRef = useRef(null)
-  const [busy, setBusy] = useState(false)
+  const [progress, setProgress] = useState(null)
   const [error, setError] = useState(null)
 
   const pick = async (e) => {
     const file = e.target.files?.[0]
     if (!file) return
-    setBusy(true)
     setError(null)
+    setProgress(0)
     try {
-      const { dataUrl } = await fileToDataUrl(file)
-      onChange(dataUrl)
+      const { url } = await uploadImage(file, setProgress)
+      onChange(url)
     } catch (err) {
       setError(err.message)
     } finally {
-      setBusy(false)
+      setProgress(null)
       // Reset, so choosing the same file twice still fires a change event.
       if (inputRef.current) inputRef.current.value = ''
     }
   }
 
   const embedded = isEmbedded(value)
+  const uploaded = isUploaded(value)
+  const busy = progress !== null
+
+  const where = embedded
+    ? 'Stored in the page · ' + formatBytes(dataUrlSize(value))
+    : uploaded
+      ? 'Uploaded'
+      : value
+        ? 'Using a file path'
+        : 'Showing a generated study'
 
   return (
     <div className="af">
@@ -135,21 +144,20 @@ export function AImage({ label, value, onChange, seed, variant, hint }) {
 
         <div className="aimg__side">
           <button type="button" className="abtn abtn--sm" onClick={() => inputRef.current?.click()} disabled={busy}>
-            {busy ? 'Processing…' : value ? 'Replace' : 'Choose photo'}
+            {busy ? 'Uploading ' + progress + '%' : value ? 'Replace' : 'Choose photo'}
           </button>
-          {value && (
+          {value && !busy && (
             <button type="button" className="abtn abtn--sm abtn--ghost" onClick={() => onChange(null)}>
               <CloseIcon size={12} />
               Remove
             </button>
           )}
-          <span className="af__hint">
-            {embedded
-              ? `Embedded · ${formatBytes(dataUrlSize(value))}`
-              : value
-                ? 'Using a file path'
-                : 'Showing a generated study'}
-          </span>
+          {busy && (
+            <span className="aimg__bar" aria-hidden="true">
+              <span style={{ width: progress + '%' }} />
+            </span>
+          )}
+          <span className="af__hint">{where}</span>
         </div>
       </div>
 
@@ -158,9 +166,9 @@ export function AImage({ label, value, onChange, seed, variant, hint }) {
       <input
         className="af__input af__input--path"
         value={embedded ? '' : value || ''}
-        placeholder="…or type a path: ./images/my-art.jpg"
+        placeholder="…or paste an image address"
         onChange={(e) => onChange(e.target.value.trim() || null)}
-        disabled={embedded}
+        disabled={embedded || busy}
       />
 
       {error && <span className="af__error">{error}</span>}

@@ -1,22 +1,39 @@
 /* ============================================================================
    CONTENT STORE
    ----------------------------------------------------------------------------
-   The site reads all its text, prices and images from here rather than from
-   src/data/site.js directly. Three layers, each overriding the one before:
+   Where the site's words, prices and images come from, in order of authority:
 
-     1. src/data/site.js   the built-in defaults — always present
-     2. public/content.json  what you published from the admin panel
-     3. localStorage draft   your unpublished edits, on your machine only
+     1. src/data/site.js    built-in defaults — always present, never fails
+     2. public/content.json a published snapshot, if one exists
+     3. Supabase            the live database — the real source of truth
+     4. localStorage draft  the editor's unsaved changes, on their machine only
 
-   That ordering is what makes the admin panel safe: a broken or missing
-   content.json cannot take the site down, it just falls back to the defaults.
+   Layers 1 and 2 are the safety net. If Supabase is unreachable, misconfigured
+   or slow, the site still renders — with slightly older content instead of an
+   error page. A gallery showing last week's prices beats a blank screen.
+
+   Layer 4 is why editing is safe. Changes are previewed locally and only reach
+   the database when Publish is pressed, so a half-typed headline never appears
+   in front of a visitor.
    ========================================================================== */
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
 import * as defaults from '../data/site.js'
+import {
+  isConfigured,
+  loadClient,
+  restUrl,
+  restHeaders,
+  CONTENT_TABLE,
+  CONTENT_ROW_ID,
+} from './supabase.js'
 
 export const DRAFT_KEY = 'kalasrotam.draft.v1'
 const CONTENT_URL = './content.json'
+
+/* How long to wait for the database before falling back. A visitor on poor
+   mobile data should see the site, not a spinner that never resolves. */
+const FETCH_TIMEOUT_MS = 4000
 
 /** The defaults, as one plain object. */
 export function baseContent() {
@@ -27,8 +44,8 @@ export function baseContent() {
    Objects merge key by key; arrays are replaced wholesale.
 
    Arrays are deliberately NOT merged element-wise. If they were, deleting the
-   third artwork in the admin panel would silently resurrect it from the layer
-   below — the edit would appear to work and then undo itself on reload. */
+   third artwork would silently resurrect it from the layer below — the edit
+   would appear to work and then undo itself on the next load. */
 
 function isPlainObject(v) {
   return v !== null && typeof v === 'object' && !Array.isArray(v)
@@ -47,15 +64,53 @@ export function merge(base, override) {
 
 /* ── Loading ──────────────────────────────────────────────────────────────── */
 
-/** Reads the published content.json. A missing file is normal, not an error. */
+/** Rejects rather than hangs, so one slow service cannot stall the whole page. */
+function withTimeout(promise, ms, label) {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => setTimeout(() => reject(new Error(label + ' timed out')), ms)),
+  ])
+}
+
+/** Reads the published snapshot. A missing file is normal, not an error. */
 export async function loadPublished() {
   try {
-    const res = await fetch(CONTENT_URL, { cache: 'no-cache' })
+    const res = await withTimeout(fetch(CONTENT_URL, { cache: 'no-cache' }), FETCH_TIMEOUT_MS, 'content.json')
     if (!res.ok) return null
     const json = await res.json()
     return isPlainObject(json) ? json : null
   } catch {
-    // No content.json yet, offline, or invalid JSON. Defaults still work.
+    return null
+  }
+}
+
+/**
+ * Reads the live row from the database.
+ *
+ * Plain fetch rather than the client library: this runs on every visit, and
+ * pulling in the whole SDK to read one row would cost every visitor about 60KB
+ * gzipped for something they never interact with.
+ */
+export async function loadRemote() {
+  if (!isConfigured) return null
+  try {
+    const url =
+      restUrl(CONTENT_TABLE) + '?select=data&id=eq.' + CONTENT_ROW_ID
+    const res = await withTimeout(
+      fetch(url, {
+        headers: restHeaders({ Accept: 'application/vnd.pgrst.object+json' }),
+        cache: 'no-store',
+      }),
+      FETCH_TIMEOUT_MS,
+      'Supabase'
+    )
+    if (!res.ok) throw new Error('HTTP ' + res.status)
+    const row = await res.json()
+    return isPlainObject(row?.data) ? row.data : null
+  } catch (err) {
+    // Never let a backend problem take the site down — fall through to the
+    // published snapshot and the built-in defaults.
+    console.warn('[kalasrotam] Live content unavailable, using fallback.', err?.message || err)
     return null
   }
 }
@@ -76,8 +131,6 @@ export function saveDraft(overrides) {
     localStorage.setItem(DRAFT_KEY, JSON.stringify(overrides))
     return true
   } catch {
-    // Usually means the draft has outgrown the ~5MB localStorage budget,
-    // which in practice means too many embedded images.
     return false
   }
 }
@@ -91,22 +144,25 @@ export function clearDraft() {
 }
 
 /**
- * Resolves all three layers. Called once before the app renders, so visitors
- * never see default content flash and get replaced.
+ * Resolves every layer. Called once before the app renders, so visitors never
+ * see default content flash and then get replaced.
  */
 export async function resolveContent() {
-  const published = await loadPublished()
-  const draft = loadDraft()
+  // Both fetches start together. The database is the source of truth, but
+  // waiting for it serially behind content.json would double the delay.
+  const [published, remote] = await Promise.all([loadPublished(), loadRemote()])
   return {
     base: baseContent(),
     published: published || {},
-    draft: draft || {},
+    remote: remote || {},
+    draft: loadDraft() || {},
+    liveContentAvailable: remote !== null,
   }
 }
 
 /* ── Non-React access ────────────────────────────────────────────────────────
-   Plain modules (the WhatsApp link builder, for one) need the live contact
-   details but cannot call a hook. The provider keeps this snapshot current. */
+   Plain modules (the WhatsApp link builder) need the live contact details but
+   cannot call a hook. The provider keeps this snapshot current. */
 
 let snapshot = baseContent()
 export function getContent() {
@@ -119,17 +175,62 @@ const ContentContext = createContext(null)
 
 export function ContentProvider({ layers, children }) {
   const [published] = useState(layers.published)
+  // Turned on by the admin panel; ordinary visitors never open a socket.
+  const [liveUpdates, setLiveUpdates] = useState(false)
+  const [remote, setRemote] = useState(layers.remote)
   const [draft, setDraftState] = useState(layers.draft)
 
-  const content = useMemo(() => merge(merge(layers.base, published), draft), [layers.base, published, draft])
+  const content = useMemo(
+    () => merge(merge(merge(layers.base, published), remote), draft),
+    [layers.base, published, remote, draft]
+  )
 
-  // Keep the non-React snapshot in step, synchronously with each render, so a
-  // WhatsApp link built during this render never uses stale details.
+  // Kept in step synchronously with each render, so a WhatsApp link built
+  // during this render never uses stale details.
   snapshot = content
 
   const hasDraft = useMemo(() => Object.keys(draft || {}).length > 0, [draft])
 
-  /** Replaces the whole draft layer. */
+  /* ── Live updates ────────────────────────────────────────────────────
+     Subscribes only when the editor is open, which is the only place the client
+     library is loaded. Divyansh can then edit on his laptop and watch his phone
+     update beside it.
+
+     Ordinary visitors do not hold a socket open. They get fresh content on
+     every page load, which is what actually matters, without the cost of a
+     persistent connection on a mobile network. */
+  useEffect(() => {
+    if (!isConfigured || !liveUpdates) return
+
+    let channel = null
+    let cancelled = false
+
+    loadClient().then((client) => {
+      if (!client || cancelled) return
+      channel = client
+        .channel('site_content_changes')
+        .on(
+          'postgres_changes',
+          {
+            event: 'UPDATE',
+            schema: 'public',
+            table: CONTENT_TABLE,
+            filter: 'id=eq.' + CONTENT_ROW_ID,
+          },
+          (payload) => {
+            const next = payload?.new?.data
+            if (isPlainObject(next)) setRemote(next)
+          }
+        )
+        .subscribe()
+    })
+
+    return () => {
+      cancelled = true
+      if (channel) loadClient().then((c) => c?.removeChannel(channel))
+    }
+  }, [liveUpdates])
+
   const setDraft = useCallback((next) => {
     setDraftState(next)
     if (Object.keys(next || {}).length === 0) clearDraft()
@@ -141,9 +242,59 @@ export function ContentProvider({ layers, children }) {
     clearDraft()
   }, [])
 
+  /**
+   * Writes the current state to the database. This is what publishing means
+   * now — one call, live everywhere in about a second, no files to move.
+   *
+   * The draft is folded into the remote layer and then cleared, so the editor
+   * ends up in a clean state showing exactly what visitors see.
+   */
+  const publish = useCallback(async () => {
+    if (!isConfigured) throw new Error('Not connected to Supabase')
+
+    const client = await loadClient()
+    if (!client) throw new Error('Could not load the editor connection')
+
+    const payload = merge(merge(published, remote), draft)
+    const { error } = await client
+      .from(CONTENT_TABLE)
+      .update({ data: payload })
+      .eq('id', CONTENT_ROW_ID)
+
+    if (error) throw error
+
+    setRemote(payload)
+    setDraftState({})
+    clearDraft()
+    return payload
+  }, [published, remote, draft])
+
   const value = useMemo(
-    () => ({ content, draft, setDraft, discardDraft, hasDraft, published, base: layers.base }),
-    [content, draft, setDraft, discardDraft, hasDraft, published, layers.base]
+    () => ({
+      content,
+      draft,
+      remote,
+      published,
+      base: layers.base,
+      setDraft,
+      discardDraft,
+      publish,
+      hasDraft,
+      enableLiveUpdates: setLiveUpdates,
+      liveContentAvailable: layers.liveContentAvailable,
+    }),
+    [
+      content,
+      draft,
+      remote,
+      published,
+      layers.base,
+      layers.liveContentAvailable,
+      setDraft,
+      discardDraft,
+      publish,
+      hasDraft,
+    ]
   )
 
   return <ContentContext.Provider value={value}>{children}</ContentContext.Provider>
@@ -156,7 +307,7 @@ export function useContent() {
   return ctx.content
 }
 
-/** Draft controls. Only the admin panel needs these. */
+/** Draft controls and publishing. Only the admin panel needs these. */
 export function useContentAdmin() {
   const ctx = useContext(ContentContext)
   if (!ctx) throw new Error('useContentAdmin must be used inside <ContentProvider>')
@@ -209,14 +360,13 @@ export function setArray(draft, path, array) {
   return next
 }
 
-/* ── Publishing ───────────────────────────────────────────────────────────── */
+/* ── Backup export ────────────────────────────────────────────────────────────
+   Publishing no longer needs a file, but being able to take a copy of
+   everything still matters — it is the difference between a bad afternoon and
+   a lost website. */
 
-/**
- * The file to upload. Published and draft layers are flattened together, so
- * the download always represents the complete current state of the site.
- */
-export function buildPublishPayload(published, draft) {
-  return merge(published || {}, draft || {})
+export function buildPublishPayload(published, remote, draft) {
+  return merge(merge(published || {}, remote || {}), draft || {})
 }
 
 export function downloadContentJson(payload) {
@@ -224,27 +374,24 @@ export function downloadContentJson(payload) {
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url
-  a.download = 'content.json'
+  a.download = 'kalasrotam-backup-' + new Date().toISOString().slice(0, 10) + '.json'
   document.body.appendChild(a)
   a.click()
   a.remove()
   setTimeout(() => URL.revokeObjectURL(url), 1000)
 }
 
-/** Rough byte size, for the admin panel's weight warning. */
 export function payloadSize(payload) {
   return new Blob([JSON.stringify(payload)]).size
 }
 
 export function formatBytes(bytes) {
-  if (bytes < 1024) return `${bytes} B`
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+  if (bytes < 1024) return bytes + ' B'
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(0) + ' KB'
+  return (bytes / (1024 * 1024)).toFixed(1) + ' MB'
 }
 
-/* ── Draft badge ──────────────────────────────────────────────────────────────
-   Shown only when unpublished edits exist. Without it, it is genuinely easy to
-   edit for an hour, close the tab, and believe the live site changed. */
+/* ── Draft badge ──────────────────────────────────────────────────────────── */
 
 export function useDraftStatus() {
   const { hasDraft } = useContentAdmin()

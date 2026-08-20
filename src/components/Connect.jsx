@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useContent } from '../lib/content.jsx'
-import { submitRemote, validateName, validatePhone, validateEmail } from '../lib/leads.js'
+import { submitLead, validateName, validatePhone, validateEmail } from '../lib/leads.js'
 import { waLink, listMessage } from '../lib/whatsapp.js'
 import { Reveal, Field, CheckIcon, ArrowIcon, WhatsAppIcon, InstagramIcon } from './ui.jsx'
 
@@ -36,7 +36,7 @@ export default function Connect() {
 
     setStatus('sending')
     try {
-      await submitRemote({ ...form, type: 'mailing-list', company: undefined })
+      await submitLead({ ...form, type: 'mailing-list' })
       setStatus('done')
     } catch {
       setStatus('done') // The visitor did their part; never show them a failure.

@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { useContent } from '../lib/content.jsx'
-import { submitRemote, validateName, validatePhone, validateEmail } from '../lib/leads.js'
+import { submitLead, validateName, validatePhone, validateEmail } from '../lib/leads.js'
 import { waLink, enquiryMessage } from '../lib/whatsapp.js'
 import { Reveal, Field, WhatsAppIcon, CheckIcon } from './ui.jsx'
 
@@ -59,7 +59,7 @@ export default function Commission() {
     const href = waLink(enquiryMessage(form))
 
     try {
-      await submitRemote({ ...form, type: 'commission-enquiry', company: undefined })
+      await submitLead({ ...form, type: 'commission-enquiry' })
       setWaHref(href)
       setStatus('done')
       // Hand off to WhatsApp straight away. Popup blockers only allow this

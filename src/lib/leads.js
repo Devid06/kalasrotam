@@ -1,25 +1,27 @@
 /* ============================================================================
-   LEADS — local storage
+   LEADS
    ----------------------------------------------------------------------------
-   You chose "store locally for now", so every enquiry and signup is saved in
-   this browser's localStorage. Two things to know:
+   Every commission enquiry and mailing-list signup now goes into the database,
+   where you can actually read it. Before this they were saved in the visitor's
+   own browser, which meant you never saw them — the only thing that reached you
+   was the WhatsApp message, and only if they completed the send.
 
-     • Leads are saved on the VISITOR's device, not yours. You will not see
-       them. What you actually receive is the WhatsApp message the form opens.
-     • Add ?admin=1 to the URL on your own machine to see and export whatever
-       has been captured in that browser — useful for testing the forms.
+   A copy is still written locally as well. If the network drops between the
+   visitor pressing submit and the row landing, the WhatsApp handoff still
+   happens and nothing is lost from their point of view.
 
-   WHEN YOU WANT REAL LEAD CAPTURE
-   Replace the body of `submitRemote` below with a fetch() to a form service
-   (Formspree, Getform, Google Apps Script). The forms already await it and
-   already show error states, so nothing else needs to change.
+   Security: the policies in supabase/setup.sql let anyone INSERT a lead — that
+   is what a contact form is — but only a signed-in account can read them back.
+   A visitor cannot list other people's names and numbers.
    ========================================================================== */
+
+import { isConfigured, loadClient, restUrl, restHeaders, LEADS_TABLE } from './supabase.js'
 
 const KEY = 'kalasrotam.leads.v1'
 
-/* ── Store ────────────────────────────────────────────────────────────────── */
+/* ── Local mirror ─────────────────────────────────────────────────────────── */
 
-export function getLeads() {
+export function getLocalLeads() {
   try {
     const raw = localStorage.getItem(KEY)
     const parsed = raw ? JSON.parse(raw) : []
@@ -31,19 +33,23 @@ export function getLeads() {
   }
 }
 
-export function saveLead(lead) {
-  const record = { ...lead, id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, at: new Date().toISOString() }
+export function saveLocalLead(lead) {
+  const record = {
+    ...lead,
+    id: Date.now() + '-' + Math.random().toString(36).slice(2, 8),
+    at: new Date().toISOString(),
+  }
   try {
-    const all = getLeads()
+    const all = getLocalLeads()
     all.unshift(record)
-    localStorage.setItem(KEY, JSON.stringify(all.slice(0, 500)))
+    localStorage.setItem(KEY, JSON.stringify(all.slice(0, 200)))
   } catch {
     /* Storage full or unavailable. The WhatsApp handoff still works. */
   }
   return record
 }
 
-export function clearLeads() {
+export function clearLocalLeads() {
   try {
     localStorage.removeItem(KEY)
   } catch {
@@ -51,26 +57,89 @@ export function clearLeads() {
   }
 }
 
+/* ── Submission ───────────────────────────────────────────────────────────── */
+
 /**
- * The single swap point for a real backend.
- * Today: resolves immediately after the local save.
- * Tomorrow: `await fetch('https://formspree.io/f/YOUR_ID', {...})`.
+ * Records an enquiry. Writes to the database when configured, and always keeps
+ * a local copy.
+ *
+ * Deliberately never throws. A visitor who filled in a form correctly should
+ * not be shown an error because of a backend problem they cannot do anything
+ * about — the WhatsApp message is the real delivery mechanism, and it works
+ * regardless.
  */
-export async function submitRemote(lead) {
-  saveLead(lead)
-  return { ok: true }
+export async function submitLead(lead) {
+  const clean = {
+    type: lead.type || 'enquiry',
+    name: lead.name?.trim() || null,
+    phone: lead.phone?.trim() || null,
+    email: lead.email?.trim() || null,
+    medium: lead.medium || null,
+    size: lead.size || null,
+    budget: lead.budget || null,
+    message: lead.message?.trim() || null,
+  }
+
+  saveLocalLead(clean)
+
+  if (!isConfigured) return { ok: true, stored: 'local' }
+
+  try {
+    // Plain fetch: a visitor submitting a form should not have to download the
+    // whole client library first.
+    const res = await fetch(restUrl(LEADS_TABLE), {
+      method: 'POST',
+      headers: restHeaders({
+        'Content-Type': 'application/json',
+        Prefer: 'return=minimal',
+      }),
+      body: JSON.stringify(clean),
+    })
+    if (!res.ok) throw new Error('HTTP ' + res.status)
+    return { ok: true, stored: 'database' }
+  } catch (err) {
+    console.warn('[kalasrotam] Lead not saved to the database.', err?.message || err)
+    return { ok: true, stored: 'local' }
+  }
 }
 
-/* ── CSV export (used by the ?admin=1 panel) ──────────────────────────────── */
+/** Reads enquiries back. Requires a signed-in account. */
+export async function fetchLeads(limit = 200) {
+  if (!isConfigured) return { leads: getLocalLeads(), source: 'local' }
+  try {
+    const client = await loadClient()
+    if (!client) return { leads: getLocalLeads(), source: 'local' }
+    const { data, error } = await client
+      .from(LEADS_TABLE)
+      .select('*')
+      .order('created_at', { ascending: false })
+      .limit(limit)
+    if (error) throw error
+    return { leads: (data || []).map((r) => ({ ...r, at: r.created_at })), source: 'database' }
+  } catch (err) {
+    console.warn('[kalasrotam] Could not read leads.', err?.message || err)
+    return { leads: getLocalLeads(), source: 'local', error: err?.message }
+  }
+}
 
-const CSV_COLUMNS = ['at', 'type', 'name', 'phone', 'email', 'medium', 'size', 'budget', 'message', 'artwork']
+export async function deleteLead(id) {
+  if (!isConfigured) return
+  const client = await loadClient()
+  if (!client) return
+  const { error } = await client.from(LEADS_TABLE).delete().eq('id', id)
+  if (error) throw error
+}
+
+/* ── CSV export ───────────────────────────────────────────────────────────── */
+
+const CSV_COLUMNS = ['at', 'type', 'name', 'phone', 'email', 'medium', 'size', 'budget', 'message']
 
 function csvCell(value) {
   const s = value == null ? '' : String(value)
   // A leading =, +, - or @ makes Excel treat the cell as a formula. Prefix a
   // quote so a lead named "=Ravi" cannot execute anything in your spreadsheet.
-  const safe = /^[=+\-@]/.test(s) ? `'${s}` : s
-  return `"${safe.replace(/"/g, '""')}"`
+  const safe = /^[=+\-@]/.test(s) ? "'" + s : s
+  return '"' + safe.replace(/"/g, '""') + '"'
 }
 
 export function leadsToCsv(leads) {
@@ -84,7 +153,7 @@ export function downloadCsv(leads) {
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url
-  a.download = `kalasrotam-leads-${new Date().toISOString().slice(0, 10)}.csv`
+  a.download = 'kalasrotam-leads-' + new Date().toISOString().slice(0, 10) + '.csv'
   document.body.appendChild(a)
   a.click()
   a.remove()
