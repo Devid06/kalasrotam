@@ -135,11 +135,26 @@ Every push to `main` redeploys automatically from here on.
 
 1. Open the Worker → **Settings** → **Domains & Routes** → **Add** →
    **Custom domain**
-2. Type the domain (e.g. `www.kalasrotam.com`) → **Add domain**
-3. Cloudflare shows you the DNS records it wants
+2. Leave the subdomain box **empty** for the bare domain → **Add domain**
+3. Repeat, with `www` in the box, so both addresses work
+4. Cloudflare shows you the DNS records it wants
 
    If the domain's nameservers are already on Cloudflare (see below), it adds
    the records itself and there is nothing to copy.
+
+> **"Hostname already has externally managed DNS records."** Moving a domain
+> from GoDaddy copies its old records across, including the ones aimed at
+> GoDaddy's parking page. Go to **DNS → Records** and delete every `A`, `AAAA`
+> or `CNAME` for that hostname, then add the custom domain again.
+>
+> Delete only those. Leave `MX`, `TXT`, `NS` and anything starting with an
+> underscore alone — `MX` carries the email and `TXT` holds domain
+> verification.
+
+> **Routes are not custom domains.** A route matches a URL pattern on a zone
+> whose DNS you already manage; a custom domain creates the DNS record *and*
+> the certificate. For a whole site on one Worker you want the custom domain,
+> and the Workers Routes page stays empty.
 
 ### 3.2 Point GoDaddy at it
 
@@ -177,13 +192,13 @@ Takes 15 minutes to a few hours to take effect. HTTPS is automatic either way.
 
 Add the domain to Supabase so logins keep working:
 **Authentication** → **URL Configuration** → set **Site URL** to
-`https://www.kalasrotam.com`.
+`https://kalasrotam.com` — no `www`, no trailing slash.
 
 ---
 
 ## Everyday use, once it is running
 
-**Divyansh edits at `https://www.kalasrotam.com/?admin=1`**
+**Divyansh edits at `https://kalasrotam.com/?admin=1`**
 
 1. Sign in with his email and password
 2. Change any text, price or photo — the page updates as he types
