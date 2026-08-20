@@ -8,7 +8,7 @@ digital art prints and home decor — with custom commissions, direct purchase o
 WhatsApp, client reviews, a mailing-list form, and a built-in editor so Divyansh
 can change any text, price or photo himself and see it live in a second.
 
-React + Vite, on Cloudflare Pages, with Supabase behind the editor. Every piece
+React + Vite, on Cloudflare Workers, with Supabase behind the editor. Every piece
 of it sits inside a free tier.
 
 ---
@@ -98,7 +98,7 @@ A visitor cannot list other people's names and numbers.
 
 ## Putting it online
 
-Hosted on **Cloudflare Pages** — free, commercial use permitted, unlimited
+Hosted on **Cloudflare Workers** — free, commercial use permitted, unlimited
 bandwidth, and the most Indian edge locations of the free options, which matters
 for buyers here.
 

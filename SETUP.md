@@ -3,7 +3,7 @@
 Three things, roughly an hour in total:
 
 1. **Supabase** — the database behind instant editing (~20 min)
-2. **Cloudflare Pages** — where the site lives (~10 min)
+2. **Cloudflare** — where the site lives (~10 min)
 3. **The GoDaddy domain** — pointing it at the site (~15 min + waiting)
 
 Do them in this order. Each one needs something from the one before.
@@ -76,47 +76,70 @@ something, press **Publish**. Reload — the change should still be there.
 
 ---
 
-## 2. Cloudflare Pages
+## 2. Cloudflare
 
-1. **[dash.cloudflare.com](https://dash.cloudflare.com)** → sign up (free)
-2. **Workers & Pages** → **Create** → **Pages** → **Connect to Git**
-3. Authorise GitHub, pick **Devid06/kalasrotam**
-4. Build settings:
+Cloudflare has two ways to host a static site — **Workers** and **Pages**. Both
+are free with unlimited bandwidth. Cloudflare now steers new projects toward
+Workers, and the dashboard hides Pages, so Workers is what you will most likely
+land on. Either is fine; this project is deployed on **Workers**.
+
+1. **[dash.cloudflare.com](https://dash.cloudflare.com)** — sign up free, using
+   Divyansh's email
+2. **Workers & Pages** → **Create** → **Import a repository**
+3. Authorise GitHub and pick **Devid06/kalasrotam**
+
+   > When GitHub asks which repositories to share, choose **Only select
+   > repositories → kalasrotam**. "All repositories" would hand Cloudflare read
+   > access to every other project in that account.
+
+4. Build settings — Cloudflare detects Vite and fills most of this in:
 
    | Setting | Value |
    | --- | --- |
-   | Framework preset | `Vite` |
    | Build command | `npm run build` |
-   | Build output directory | `dist` |
+   | Deploy command | `npx wrangler deploy` (leave as offered) |
+   | Path | `/` |
 
-5. Expand **Environment variables** and add both, for **Production** *and*
-   **Preview**:
+5. **API token** — leave it on *Create new token*. Cloudflare makes one itself;
+   you do not need to configure anything.
+
+6. **Variables** — add both, and do it **now**:
 
    ```
    VITE_SUPABASE_URL       = https://xxxxxxxxxxx.supabase.co
    VITE_SUPABASE_ANON_KEY  = eyJhbGciOi...
    ```
 
-   These must be set **before** the first build. Vite bakes them into the
-   JavaScript at build time — adding them later does nothing until you rebuild.
+   Vite bakes these into the JavaScript **at build time**. Adding them after the
+   first build does nothing until you deploy again. If the live site ever shows
+   the original placeholder text, or the editor says "Not connected to the
+   database", this is why — fix the variables and redeploy.
 
-6. **Save and Deploy**
+7. **Deploy**
 
-You get a URL like `kalasrotam.pages.dev`. Every push to `main` redeploys
-automatically.
+### The two URLs you get
 
-> If you ever change a key, use **Deployments → Retry deployment**. Editing the
-> variable alone will not update the live site.
+```
+https://kalasrotam.<subdomain>.workers.dev              ← production, share this
+https://<version-id>-kalasrotam.<subdomain>.workers.dev ← one per deployment
+```
 
----
+The prefixed one is a **version preview**, and its address changes with every
+push. Always give people the clean one.
+
+Every push to `main` redeploys automatically from here on.
 
 ## 3. The GoDaddy domain
 
 ### 3.1 Add it in Cloudflare
 
-1. In your Pages project → **Custom domains** → **Set up a domain**
-2. Type the domain (e.g. `kalasrotam.com`) → **Continue**
+1. Open the Worker → **Settings** → **Domains & Routes** → **Add** →
+   **Custom domain**
+2. Type the domain (e.g. `www.kalasrotam.com`) → **Add domain**
 3. Cloudflare shows you the DNS records it wants
+
+   If the domain's nameservers are already on Cloudflare (see below), it adds
+   the records itself and there is nothing to copy.
 
 ### 3.2 Point GoDaddy at it
 
@@ -129,7 +152,7 @@ automatically.
    | --- | --- |
    | Type | `CNAME` |
    | Name | `www` |
-   | Value | `kalasrotam.pages.dev` (whatever Cloudflare showed) |
+   | Value | `kalasrotam.<subdomain>.workers.dev` (whatever Cloudflare showed) |
    | TTL | 1 hour |
 
 3. For the bare domain (`kalasrotam.com` with no `www`), GoDaddy does not
@@ -190,7 +213,7 @@ Restore loads it back. Worth doing before any big change.
 | Supabase database | 500 MB | well under 1 MB |
 | Supabase storage | 1 GB | ~200 photos |
 | Supabase bandwidth | 5 GB/month | fine unless it goes viral |
-| Cloudflare Pages | unlimited bandwidth | — |
+| Cloudflare Workers | unlimited bandwidth | — |
 | Cloudflare builds | 500/month | one per push |
 
 One thing to know: **a free Supabase project pauses after about a week with no
